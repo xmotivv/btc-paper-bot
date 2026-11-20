@@ -1,12 +1,16 @@
 name: Release
 
-# Push a tag like v0.2.0 (or run `npm run release:patch`) and this builds the
-# Windows installer and publishes it as a GitHub Release. Installed copies of
-# the app check Releases every 30 minutes and update themselves.
+# Bump "version" in package.json and push to main (or run `npm run release:patch`).
+# If that version hasn't been released yet, this builds the Windows installer
+# and publishes it as GitHub Release v<version>. Installed copies of the app
+# check Releases every 30 minutes and update themselves.
+# You can also run it by hand from the Actions tab ("Run workflow").
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['package.json']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,19 +25,27 @@ jobs:
         with:
           node-version: 22
 
-      - name: Check tag matches package.json version
+      - name: Skip if this version is already released
+        id: check
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PKG="v$(node -p "require('./package.json').version")"
-          if [ "$PKG" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG"; exit 1
+          V="v$(node -p "require('./package.json').version")"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$V already released — nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - run: npm install
+      - if: steps.check.outputs.skip != 'true'
+        run: npm install
 
-      - run: npm test
+      - if: steps.check.outputs.skip != 'true'
+        run: npm test
 
       - name: Build and publish installer
+        if: steps.check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win --publish always

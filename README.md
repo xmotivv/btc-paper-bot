@@ -18,10 +18,10 @@ The app checks this repo's GitHub Releases on launch and every 30 minutes after 
 
 ```bash
 # make your code changes, commit them, then:
-npm run release:patch     # 0.1.0 -> 0.1.1, tags it and pushes it
+npm run release:patch     # 0.1.0 -> 0.1.1, commits and pushes
 ```
 
-The tag push triggers `.github/workflows/release.yml`. It runs the tests, builds the installer on a Windows runner, and publishes the release, which installed apps then pick up. (To do it by hand: bump `version` in `package.json`, commit, then `git tag v0.1.1 && git push --follow-tags`.)
+Any push to `main` that changes the `version` in `package.json` triggers `.github/workflows/release.yml`. It runs the tests, builds the installer on a Windows runner, and publishes release `v<version>`, which installed apps then pick up. Versions that were already released are skipped. You can also edit the version straight on GitHub, or re-run the build from the **Actions** tab.
 
 > The repo must be **public** for auto-updates to work without putting a GitHub token inside the app. The code contains no secrets.
 

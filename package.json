@@ -15,8 +15,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "dist": "electron-builder --win --publish never",
-    "release:patch": "npm version patch && git push --follow-tags",
-    "release:minor": "npm version minor && git push --follow-tags"
+    "release:patch": "npm version patch --no-git-tag-version && git commit -am \"Release\" && git push",
+    "release:minor": "npm version minor --no-git-tag-version && git commit -am \"Release\" && git push"
   },
   "dependencies": {
     "electron-log": "^5.4.0",

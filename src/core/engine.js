@@ -18,6 +18,7 @@ const registry = require('./strategies');
 const { BtcStream, BookStream, ChainlinkStream } = require('./streams');
 const us = require('./us');
 const { LiveTrader } = require('./live');
+const { DiscordNotifier, formatActivity } = require('./notify');
 
 const DEFAULT_SETTINGS = {
   windowKey: '15m',
@@ -33,6 +34,7 @@ const DEFAULT_SETTINGS = {
   activeStrategies: ['momentum'],
   venue: 'global', // which exchange's markets to watch: 'global' = polymarket.com, 'us' = Polymarket US
   liveStrategies: [], // strategies allowed to place real orders (only when a Polymarket US key is connected and armed)
+  notifyPaper: true, // when a Discord webhook is set: report paper trades too, not just real ones
 };
 
 const UI_MS = 200; // at most 5 UI updates a second
@@ -116,6 +118,7 @@ class Engine extends EventEmitter {
     this.index = new us.IndexSeries(); // Polymarket US settlement index (60s average, one value a second)
     this.usStream = null; // Polymarket US real-time order book (needs a connected API key)
     this.live = new LiveTrader({ state: saved.live || {}, log: (level, msg) => this._log(level, msg), now, fetchImpl });
+    this.notifier = new DiscordNotifier({ fetchImpl }); // the webhook address is supplied at runtime, never saved here
     this._bookTimer = null;
     this._marketRefreshAt = 0;
     this._accountAt = 0;
@@ -923,7 +926,7 @@ class Engine extends EventEmitter {
 
   // ----------------------------------------------------------------- settings
   updateSettings(patch = {}) {
-    const allowed = ['windowKey', 'pollMs', 'evalMs', 'streaming', 'feeModel', 'feeRate', 'maxSlippage', 'officialWaitSec', 'recordTicks', 'venue'];
+    const allowed = ['windowKey', 'pollMs', 'evalMs', 'streaming', 'feeModel', 'feeRate', 'maxSlippage', 'officialWaitSec', 'recordTicks', 'venue', 'notifyPaper'];
     const before = { windowKey: this.settings.windowKey, streaming: this.settings.streaming, venue: this.settings.venue };
     for (const k of allowed) if (k in patch) this.settings[k] = patch[k];
     const num = (v, dflt, min, max) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt; };
@@ -933,6 +936,7 @@ class Engine extends EventEmitter {
     this.settings.maxSlippage = num(this.settings.maxSlippage, 0.03, 0, 0.5);
     this.settings.officialWaitSec = num(this.settings.officialWaitSec, 600, 30, 86400);
     this.settings.streaming = !!this.settings.streaming;
+    this.settings.notifyPaper = this.settings.notifyPaper !== false;
     if (!['global', 'us'].includes(this.settings.venue)) this.settings.venue = 'global';
     if (!this._venue.WINDOWS[this.settings.windowKey]) this.settings.windowKey = '15m';
     if (!['market', 'flat'].includes(this.settings.feeModel)) this.settings.feeModel = 'market';
@@ -1111,6 +1115,7 @@ class Engine extends EventEmitter {
           liveUnrealised: lo ? lo.value - lo.cost : 0,
         };
       }),
+      notify: this.notifier.status(),
       live: {
         connected: this.live.connected,
         armed: this.live.armed,
@@ -1169,6 +1174,25 @@ class Engine extends EventEmitter {
     this.log.push({ t: this.now(), level, msg });
     if (this.log.length > 500) this.log.shift();
     this.rev.log++;
+    if (this.notifier.enabled) {
+      const line = formatActivity(level, msg, { includePaper: this.settings.notifyPaper !== false });
+      if (line) this.notifier.push(line);
+    }
+  }
+
+  // ------------------------------------------------------------ notifications
+  /** Set or (with an empty value) remove the Discord webhook that trade activity is reported to. */
+  setWebhook(url) {
+    const r = this.notifier.setUrl(url);
+    if (r.ok) this._log('info', r.enabled ? 'Discord notifications on' : 'Discord notifications off');
+    this._emit();
+    return r;
+  }
+
+  async testWebhook() {
+    const r = await this.notifier.test();
+    this._emit();
+    return r;
   }
 
   /** Log, but at most once every 15s per key — strategies run many times a second. */

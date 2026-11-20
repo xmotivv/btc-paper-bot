@@ -160,8 +160,20 @@
       <label class="check"><input name="recordTicks" type="checkbox" /> Record market ticks for analysis</label>
       <label class="check"><input name="autoStart" type="checkbox" /> Start bot when app opens</label>
       <label class="check"><input name="keepAwake" type="checkbox" /> Keep PC awake while running</label>
+      <label class="check"><input name="notifyPaper" type="checkbox" /> Send paper trades to Discord too (real ones always are)</label>
     </form>
     <div class="toolbar"><button id="saveSettings" class="btn primary">Save settings</button><span id="settingsSaved" class="muted"></span></div>
+    <hr />
+    <div class="label">Discord notifications</div>
+    <div id="hookStatus" class="live-status">Off</div>
+    <div class="toolbar">
+      <input id="hookUrl" class="wide" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a Discord webhook address" />
+      <button id="hookSave" class="btn primary" type="button">Save</button>
+      <button id="hookTest" class="btn" type="button" disabled>Send test message</button>
+      <button id="hookRemove" class="btn hidden" type="button">Remove</button>
+      <span id="hookMsg" class="muted"></span>
+    </div>
+    <p class="muted small">Every buy, sell, manual close and settlement is posted to the channel, along with live trading being switched on or off. In Discord: channel settings → Integrations → Webhooks → Copy Webhook URL. The address is stored encrypted on this PC; anyone who has it can post to that channel, so don't share it.</p>
     <hr />
     <div class="toolbar">
       <label>Starting cash $ <input id="resetCash" type="number" min="10" step="10" value="1000" /></label>

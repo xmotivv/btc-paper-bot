@@ -113,6 +113,7 @@ function render() {
   setText($('liveCount'), v.live && v.live.armed ? `armed · ${liveOn}` : 'connected');
   setClass($('liveCount'), `count${v.live && v.live.armed ? ' hot' : ''}${v.live && v.live.connected ? '' : ' hidden'}`);
 
+  renderWebhook(v);
   if (!strategiesBuilt) buildStrategies(v);
   if (!settingsBuilt) buildSettings(v);
   if (activeTab === 'positions') renderPositions(v);
@@ -424,6 +425,18 @@ function renderLive(v) {
   setText($('liveExchangePositions'), !L.connected ? '—' : ex.length ? ex.map((p) => `${p.title}: ${p.net > 0 ? '+' : ''}${p.net}`).join('  ·  ') : 'none');
 }
 
+function renderWebhook(v) {
+  if (activeTab !== 'settings') return;
+  const n = v.notify || {};
+  const text = n.enabled
+    ? `On · ${n.where} · ${n.sent} sent${n.waiting ? ` · ${n.waiting} waiting` : ''}${n.dropped ? ` · ${n.dropped} dropped` : ''}${n.lastError ? ` · last problem: ${n.lastError}` : ''}`
+    : n.lastError ? `Off · ${n.lastError}` : 'Off';
+  setText($('hookStatus'), text);
+  setClass($('hookStatus'), `live-status${n.enabled ? (n.lastError ? '' : ' ok') : ''}`);
+  $('hookTest').disabled = !n.enabled;
+  $('hookRemove').classList.toggle('hidden', !n.enabled);
+}
+
 function buildSettings(v) {
   settingsBuilt = true;
   const f = $('settingsForm');
@@ -562,6 +575,28 @@ $('liveArmBtn').addEventListener('click', async () => {
 });
 $('liveDisarmBtn').addEventListener('click', async () => { await bot.liveDisarm(); schedule(); });
 $('killBtn').addEventListener('click', async () => { await bot.liveKill(); schedule(); });
+
+// discord webhook
+$('hookSave').addEventListener('click', async () => {
+  const url = $('hookUrl').value.trim();
+  if (!url) { flash($('hookMsg'), 'Paste the webhook address first.', 4000); return; }
+  const r = await bot.setWebhook(url);
+  if (r && r.ok) { $('hookUrl').value = ''; flash($('hookMsg'), r.remembered ? 'Saved ✓' : 'On for now (could not be stored securely, so it will need entering again next time)', 6000); }
+  else flash($('hookMsg'), (r && r.error) || 'Could not save.', 8000);
+  schedule();
+});
+$('hookTest').addEventListener('click', async () => {
+  setText($('hookMsg'), 'Sending…');
+  const r = await bot.testWebhook();
+  flash($('hookMsg'), r && r.ok ? 'Test message sent ✓ — check the channel' : (r && r.error) || 'Could not send.', 7000);
+  schedule();
+});
+$('hookRemove').addEventListener('click', async () => {
+  if (!confirm('Stop sending trade activity to Discord and delete the saved webhook address?')) return;
+  await bot.setWebhook('');
+  flash($('hookMsg'), 'Removed');
+  schedule();
+});
 
 // settings
 $('saveSettings').addEventListener('click', async () => {

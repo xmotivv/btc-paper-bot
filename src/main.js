@@ -105,6 +105,24 @@ function forgetCredentials() {
   try { fs.unlinkSync(credsFile()); } catch { /* nothing saved */ }
 }
 
+// The Discord webhook address is kept the same way: anyone holding it can post to the channel.
+const hookFile = () => path.join(app.getPath('userData'), 'discord-webhook.bin');
+
+function saveWebhook(url) {
+  if (!url) { try { fs.unlinkSync(hookFile()); } catch { /* nothing saved */ } return true; }
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  fs.writeFileSync(hookFile(), safeStorage.encryptString(url));
+  return true;
+}
+
+function loadWebhook() {
+  try {
+    return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(hookFile())) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------- IPC
 function initIpc() {
   ipcMain.handle('state', () => ({ ...engine.view(), version: app.getVersion(), update: updateState, keepAwake: blockerId != null }));
@@ -130,6 +148,13 @@ function initIpc() {
   ipcMain.handle('live-kill', () => engine.killLive());
   ipcMain.handle('live-limits', (_e, patch) => engine.setLiveLimits(patch || {}));
   ipcMain.handle('set-strategy-live', (_e, id, on) => engine.setStrategyLive(String(id), !!on));
+  ipcMain.handle('webhook-set', (_e, url) => {
+    const clean = String(url || '').trim();
+    const r = engine.setWebhook(clean);
+    if (r.ok) r.remembered = saveWebhook(r.enabled ? clean : '');
+    return r;
+  });
+  ipcMain.handle('webhook-test', () => engine.testWebhook());
   ipcMain.handle('update-settings', (_e, patch) => {
     if (patch && 'keepAwake' in patch) {
       engine.settings.keepAwake = !!patch.keepAwake;
@@ -176,6 +201,8 @@ app.whenReady().then(() => {
     engine.start();
     setKeepAwake(!!engine.settings.keepAwake);
   }
+  const hook = loadWebhook();
+  if (hook) engine.setWebhook(hook);
   // Reconnect a saved key so balances show up, but live trading always starts switched off.
   const saved = loadCredentials();
   if (saved) engine.connectLive(saved, { switchVenue: false }).then((r) => { if (r.error) log.warn(`Saved Polymarket US key could not connect: ${r.error}`); });

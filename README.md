@@ -89,6 +89,17 @@ Every row under **Open positions** has a **Close** button that sells that positi
 
 A position can only be sold while its window is still running. Once the window ends it shows **Settling…** and is paid out automatically when the result arrives.
 
+## Discord notifications
+
+The bot can post its trade activity to a Discord channel: every buy, sell, manual close and settlement, plus live trading being switched on or off and any problem with a real order. Real-money activity is marked 🔴 **LIVE**, paper activity 📄 paper.
+
+1. In Discord, open the channel's settings → **Integrations** → **Webhooks**, create a webhook and **Copy Webhook URL**.
+2. In the bot, open **Settings**, paste it under **Discord notifications** and press **Save**, then **Send test message** to check it arrives.
+
+Untick **Send paper trades to Discord too** if you only want real trades reported. Messages are batched (a few trades in the same couple of seconds arrive as one message) and sending never delays trading; if Discord can't be reached the backlog is dropped after a few tries rather than piling up.
+
+Anyone who has a webhook address can post to that channel, so the bot treats it like a password: it is stored encrypted by Windows on this PC, never written to `state.json`, the logs or this repository, and only ever shown masked. **Remove** deletes it.
+
 ## Trading a real Polymarket US account
 
 Polymarket US (the CFTC-regulated exchange, [polymarket.us](https://polymarket.us)) lists its own BTC Up/Down 5- and 15-minute markets and has an official trading API. The bot can watch those markets instead of polymarket.com's, and place real orders on them with your account. polymarket.com itself is not supported for real trading.

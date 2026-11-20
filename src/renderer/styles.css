@@ -110,3 +110,6 @@ details[open] summary { margin-bottom: 10px; }
 .strategy.live { border-color: #e74c3c; box-shadow: 0 0 0 1px #e74c3c inset; }
 .live-line { color: #ffb3b3; font-size: 12px; margin: 4px 0 8px !important; font-variant-numeric: tabular-nums; }
 @media (max-width: 1150px) { .live-grid { grid-template-columns: 1fr; } }
+
+/* ---- discord webhook */
+input.wide { flex: 1 1 320px; min-width: 240px; }

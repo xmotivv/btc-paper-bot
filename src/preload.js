@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('bot', {
   liveKill: () => ipcRenderer.invoke('live-kill'),
   liveLimits: (patch) => ipcRenderer.invoke('live-limits', patch),
   setStrategyLive: (id, on) => ipcRenderer.invoke('set-strategy-live', id, on),
+  setWebhook: (url) => ipcRenderer.invoke('webhook-set', url),
+  testWebhook: () => ipcRenderer.invoke('webhook-test'),
   updateSettings: (patch) => ipcRenderer.invoke('update-settings', patch),
   reset: (cash) => ipcRenderer.invoke('reset', cash),
   exportCsv: () => ipcRenderer.invoke('export-csv'),

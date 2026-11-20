@@ -1,7 +1,7 @@
 {
   "name": "btc-paper-bot",
   "productName": "BTC Paper Bot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Paper-trading bot for Polymarket Bitcoin Up/Down markets",
   "main": "src/main.js",
   "author": "The Clubhouse Golf Studio",

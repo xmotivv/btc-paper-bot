@@ -9,7 +9,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/OWNER/REPO.git"
+    "url": "https://github.com/xmotivv/btc-paper-bot.git"
   },
   "scripts": {
     "start": "electron .",
@@ -58,8 +58,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "OWNER",
-        "repo": "REPO",
+        "owner": "xmotivv",
+        "repo": "btc-paper-bot",
         "releaseType": "release"
       }
     ]

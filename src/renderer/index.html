@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+  <title>BTC Paper Bot</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">₿</span>
+      <div>
+        <div class="title">BTC Paper Bot</div>
+        <div class="sub">Polymarket BTC Up/Down · paper trading only, no real money</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="updateBadge" class="badge hidden"></button>
+      <span id="statusPill" class="pill">—</span>
+      <button id="toggleBtn" class="btn primary">Start</button>
+    </div>
+  </header>
+
+  <div id="errorBar" class="error hidden"></div>
+
+  <section class="cards">
+    <div class="card">
+      <div class="label">BTC / USD <span class="muted">(Coinbase)</span></div>
+      <div id="btcPrice" class="big">—</div>
+      <canvas id="btcSpark" height="48"></canvas>
+    </div>
+    <div class="card">
+      <div class="label">Current market</div>
+      <a id="marketTitle" class="market-title" href="#">Waiting for market…</a>
+      <div class="row"><span>Price to beat</span><b id="ptb">—</b></div>
+      <div class="row"><span>Move vs open</span><b id="move">—</b></div>
+      <div class="row"><span>Time left</span><b id="countdown">—</b></div>
+    </div>
+    <div class="card">
+      <div class="label">Order book</div>
+      <div class="quotes">
+        <div class="quote up"><div>UP</div><div class="q" id="upQ">— / —</div><div class="muted">bid / ask</div></div>
+        <div class="quote down"><div>DOWN</div><div class="q" id="downQ">— / —</div><div class="muted">bid / ask</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="label">Paper account</div>
+      <div id="equity" class="big">—</div>
+      <div class="row"><span>Cash</span><b id="cash">—</b></div>
+      <div class="row"><span>Total P&amp;L</span><b id="pnl">—</b></div>
+      <div class="row"><span>Win rate · trades</span><b id="winrate">—</b></div>
+      <div class="row"><span>Profit factor · fees</span><b id="pf">—</b></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><span>Equity</span><span class="muted" id="equityRange"></span></div>
+    <canvas id="equityChart" height="170"></canvas>
+  </section>
+
+  <nav class="tabs">
+    <button data-tab="positions" class="active">Open positions</button>
+    <button data-tab="trades">Trade history</button>
+    <button data-tab="strategy">Strategy</button>
+    <button data-tab="settings">Settings</button>
+    <button data-tab="log">Activity log</button>
+  </nav>
+
+  <section class="panel tab" id="tab-positions">
+    <table><thead><tr><th>Market</th><th>Side</th><th>Shares</th><th>Entry</th><th>Mark</th><th>Unrealised</th><th>Why</th></tr></thead><tbody id="positionsBody"></tbody></table>
+    <div class="empty" id="positionsEmpty">No open positions.</div>
+  </section>
+
+  <section class="panel tab hidden" id="tab-trades">
+    <div class="toolbar"><button id="exportBtn" class="btn">Export CSV</button></div>
+    <table><thead><tr><th>Closed</th><th>Market</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Exit type</th><th>Entry reason</th></tr></thead><tbody id="tradesBody"></tbody></table>
+    <div class="empty" id="tradesEmpty">No closed trades yet.</div>
+  </section>
+
+  <section class="panel tab hidden" id="tab-strategy">
+    <div class="form-row"><label>Strategy</label><select id="strategySelect"></select></div>
+    <p id="strategyDesc" class="muted"></p>
+    <form id="paramsForm" class="grid-form"></form>
+    <div class="toolbar"><button id="saveParams" class="btn primary">Apply parameters</button><span id="paramsSaved" class="muted"></span></div>
+    <p class="muted small">Changes apply on the next tick. Each strategy remembers its own parameters.</p>
+  </section>
+
+  <section class="panel tab hidden" id="tab-settings">
+    <form id="settingsForm" class="grid-form">
+      <label>Market window<select name="windowKey"><option value="15m">15 minutes</option><option value="5m">5 minutes</option></select></label>
+      <label>Poll interval (ms)<input name="pollMs" type="number" min="1000" step="500" /></label>
+      <label>Fee rate (fraction of notional)<input name="feeRate" type="number" min="0" max="0.1" step="0.001" /></label>
+      <label>Max slippage per fill<input name="maxSlippage" type="number" min="0" max="0.5" step="0.005" /></label>
+      <label>Wait for official result (s)<input name="officialWaitSec" type="number" min="30" step="30" /></label>
+      <label class="check"><input name="recordTicks" type="checkbox" /> Record market ticks for analysis</label>
+      <label class="check"><input name="autoStart" type="checkbox" /> Start bot when app opens</label>
+      <label class="check"><input name="keepAwake" type="checkbox" /> Keep PC awake while running</label>
+    </form>
+    <div class="toolbar"><button id="saveSettings" class="btn primary">Save settings</button><span id="settingsSaved" class="muted"></span></div>
+    <hr />
+    <div class="toolbar">
+      <label>Starting cash $ <input id="resetCash" type="number" min="10" step="10" value="1000" /></label>
+      <button id="resetBtn" class="btn danger">Reset paper account</button>
+      <button id="dataBtn" class="btn">Open data folder</button>
+    </div>
+    <hr />
+    <div class="toolbar">
+      <span>Version <b id="version">—</b></span>
+      <span id="updateText" class="muted"></span>
+      <button id="checkUpdateBtn" class="btn">Check for updates</button>
+    </div>
+  </section>
+
+  <section class="panel tab hidden" id="tab-log">
+    <div id="logList" class="log"></div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

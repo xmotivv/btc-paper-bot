@@ -1,0 +1,145 @@
+'use strict';
+const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
+const { Engine } = require('./core/engine');
+const { Store } = require('./core/store');
+
+log.transports.file.level = 'info';
+autoUpdater.logger = log;
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
+let win = null;
+let engine = null;
+let store = null;
+let blockerId = null;
+let updateState = { status: 'idle', message: '' };
+
+function send(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1320,
+    height: 880,
+    minWidth: 1000,
+    minHeight: 680,
+    backgroundColor: '#0b0f14',
+    title: `BTC Paper Bot ${app.getVersion()}`,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+}
+
+function setKeepAwake(on) {
+  if (on && blockerId == null) blockerId = powerSaveBlocker.start('prevent-app-suspension');
+  if (!on && blockerId != null) {
+    powerSaveBlocker.stop(blockerId);
+    blockerId = null;
+  }
+}
+
+// ------------------------------------------------------------------ updates
+function setUpdate(status, message = '', extra = {}) {
+  updateState = { status, message, ...extra };
+  send('update-status', updateState);
+}
+
+function initUpdater() {
+  if (!app.isPackaged) {
+    setUpdate('dev', 'Auto-update is off in development mode');
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => setUpdate('checking', 'Checking for updates…'));
+  autoUpdater.on('update-available', (i) => setUpdate('downloading', `Downloading v${i.version}…`, { version: i.version }));
+  autoUpdater.on('update-not-available', () => setUpdate('current', 'Up to date'));
+  autoUpdater.on('download-progress', (p) => setUpdate('downloading', `Downloading update… ${Math.round(p.percent)}%`));
+  autoUpdater.on('update-downloaded', (i) => setUpdate('ready', `v${i.version} ready — restart to install`, { version: i.version, notes: i.releaseNotes || '' }));
+  autoUpdater.on('error', (e) => setUpdate('error', `Update error: ${e.message}`));
+  const check = () => autoUpdater.checkForUpdates().catch((e) => setUpdate('error', e.message));
+  setTimeout(check, 5000);
+  setInterval(check, 30 * 60 * 1000);
+}
+
+// ---------------------------------------------------------------------- IPC
+function initIpc() {
+  ipcMain.handle('state', () => ({ ...engine.view(), version: app.getVersion(), update: updateState, keepAwake: blockerId != null }));
+  ipcMain.handle('start', () => { engine.start(); setKeepAwake(!!engine.settings.keepAwake); return true; });
+  ipcMain.handle('stop', () => { engine.stop(); setKeepAwake(false); return true; });
+  ipcMain.handle('set-strategy', (_e, id, params) => { engine.setStrategy(id, params); return true; });
+  ipcMain.handle('update-settings', (_e, patch) => {
+    if (patch && 'keepAwake' in patch) {
+      engine.settings.keepAwake = !!patch.keepAwake;
+      setKeepAwake(engine.running && engine.settings.keepAwake);
+    }
+    if (patch && 'autoStart' in patch) engine.settings.autoStart = !!patch.autoStart;
+    engine.updateSettings(patch);
+    return true;
+  });
+  ipcMain.handle('reset', (_e, cash) => { engine.reset(cash); return true; });
+  ipcMain.handle('export-csv', async () => {
+    const r = await dialog.showSaveDialog(win, {
+      defaultPath: `paper-trades-${new Date().toISOString().slice(0, 10)}.csv`,
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (r.canceled || !r.filePath) return false;
+    fs.writeFileSync(r.filePath, engine.tradesCsv());
+    return r.filePath;
+  });
+  ipcMain.handle('open-data-folder', () => shell.openPath(store.dir));
+  ipcMain.handle('open-url', (_e, url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); });
+  ipcMain.handle('check-update', () => {
+    if (!app.isPackaged) return setUpdate('dev', 'Auto-update is off in development mode');
+    return autoUpdater.checkForUpdates().catch((e) => setUpdate('error', e.message));
+  });
+  ipcMain.handle('install-update', () => {
+    engine.stop();
+    store.flush();
+    autoUpdater.quitAndInstall();
+  });
+}
+
+// ---------------------------------------------------------------- lifecycle
+app.whenReady().then(() => {
+  store = new Store(path.join(app.getPath('userData'), 'bot-data'));
+  engine = new Engine({ store });
+  engine.settings.autoStart ??= true;
+  engine.settings.keepAwake ??= false;
+  engine.on('update', (view) => send('engine', view));
+  initIpc();
+  createWindow();
+  initUpdater();
+  if (engine.settings.autoStart) {
+    engine.start();
+    setKeepAwake(!!engine.settings.keepAwake);
+  }
+});
+
+app.on('second-instance', () => {
+  if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+});
+
+app.on('before-quit', () => {
+  if (engine) engine.stop();
+  if (store) store.flush();
+});
+
+app.on('window-all-closed', () => app.quit());

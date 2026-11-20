@@ -463,6 +463,7 @@ class LiveTrader {
   _close(pos, x) {
     const t = {
       id: newId('ltrd'),
+      positionId: pos.id,
       live: true,
       slug: pos.slug,
       title: pos.title,

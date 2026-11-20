@@ -175,6 +175,22 @@
     </div>
     <p class="muted small">Every buy, sell, manual close and settlement is posted to the channel, along with live trading being switched on or off. In Discord: channel settings → Integrations → Webhooks → Copy Webhook URL. The address is stored encrypted on this PC; anyone who has it can post to that channel, so don't share it.</p>
     <hr />
+    <div class="label">Discord bot — live P&amp;L cards with a Close button</div>
+    <div id="botStatus" class="live-status">Off</div>
+    <form id="botForm" class="grid-form">
+      <label>Bot token<input id="botToken" type="password" autocomplete="off" spellcheck="false" /></label>
+      <label>Your Discord user ID<input id="botUser" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
+      <label>Channel ID <span class="muted">(blank = the webhook's channel)</span><input id="botChannel" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" /></label>
+    </form>
+    <div class="toolbar">
+      <button id="botSave" class="btn primary" type="button">Connect bot</button>
+      <button id="botInvite" class="btn hidden" type="button">Invite bot to your server</button>
+      <button id="botTest" class="btn" type="button" disabled>Send test message</button>
+      <button id="botRemove" class="btn hidden" type="button">Remove</button>
+      <span id="botMsg" class="muted"></span>
+    </div>
+    <p class="muted small">Each open position gets its own message in the channel, updated every few seconds with its unrealised P&amp;L, and a <b>Close position</b> button. Only the user ID above can use the buttons, real positions ask for a second confirmation, and this app has to be running for a click to do anything. Create the bot at discord.com/developers → New Application → Bot → Reset Token. To copy IDs, switch on Developer Mode in Discord (Settings → Advanced), then right-click yourself or the channel.</p>
+    <hr />
     <div class="toolbar">
       <label>Starting cash $ <input id="resetCash" type="number" min="10" step="10" value="1000" /></label>
       <button id="resetBtn" class="btn danger">Reset paper account</button>

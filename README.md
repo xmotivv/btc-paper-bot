@@ -100,6 +100,24 @@ Untick **Send paper trades to Discord too** if you only want real trades reporte
 
 Anyone who has a webhook address can post to that channel, so the bot treats it like a password: it is stored encrypted by Windows on this PC, never written to `state.json`, the logs or this repository, and only ever shown masked. **Remove** deletes it.
 
+### Discord bot: live P&L and a Close button
+
+A webhook can only send, so for buttons the bot needs a Discord bot of its own. With one connected, every open position gets its own message in the channel showing its unrealised P&L (updated every few seconds), a countdown to the end of the window, and a **Close position** button. When the position is closed or settles, the same message is rewritten with the result.
+
+1. At [discord.com/developers/applications](https://discord.com/developers/applications) create a **New Application**, open **Bot**, press **Reset Token** and copy the token.
+2. In Discord, switch on **Developer Mode** (Settings → Advanced). Right-click yourself → **Copy User ID**, and right-click the channel → **Copy Channel ID** (or leave the channel blank to use the webhook's channel).
+3. In the bot's **Settings → Discord bot**, paste the token and IDs and press **Connect bot**, then **Invite bot to your server** and approve it in Discord.
+4. Press **Send test message**, then press the **Test button** on that message in Discord. It should answer "Buttons work ✓".
+
+Things to know:
+
+- Only the Discord user ID you entered can use the buttons; anyone else gets a private refusal.
+- Closing a paper position takes one click. Closing a **LIVE** position asks "Sell this REAL position?" and needs a second click.
+- The app has to be running on this PC for a click to do anything. The bot connects out to Discord, so nothing needs opening on your router.
+- The bot token is stored encrypted like the other secrets. **Remove** deletes it.
+- The webhook and the bot can run side by side (the webhook gives a running log, the bot gives the cards), or remove the webhook if that is more than you want.
+- This has been tested against a simulated Discord only; step 4 is the real check.
+
 ## Trading a real Polymarket US account
 
 Polymarket US (the CFTC-regulated exchange, [polymarket.us](https://polymarket.us)) lists its own BTC Up/Down 5- and 15-minute markets and has an official trading API. The bot can watch those markets instead of polymarket.com's, and place real orders on them with your account. polymarket.com itself is not supported for real trading.

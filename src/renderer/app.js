@@ -435,6 +435,19 @@ function renderWebhook(v) {
   setClass($('hookStatus'), `live-status${n.enabled ? (n.lastError ? '' : ' ok') : ''}`);
   $('hookTest').disabled = !n.enabled;
   $('hookRemove').classList.toggle('hidden', !n.enabled);
+
+  const d = v.discord || {};
+  const state = !d.configured
+    ? (d.lastError ? `Off · ${d.lastError}` : 'Off')
+    : `${d.connected ? 'Connected' : 'Connecting…'} as ${d.botName || 'bot'} · ${d.cards} position card${d.cards === 1 ? '' : 's'}${d.lastError ? ` · last problem: ${d.lastError}` : ''}`;
+  setText($('botStatus'), state);
+  setClass($('botStatus'), `live-status${d.configured && d.connected && !d.lastError ? ' ok' : ''}`);
+  $('botForm').classList.toggle('hidden', !!d.configured);
+  $('botSave').classList.toggle('hidden', !!d.configured);
+  $('botTest').disabled = !d.configured;
+  $('botRemove').classList.toggle('hidden', !d.configured);
+  $('botInvite').classList.toggle('hidden', !d.inviteUrl);
+  $('botInvite').dataset.url = d.inviteUrl || '';
 }
 
 function buildSettings(v) {
@@ -595,6 +608,36 @@ $('hookRemove').addEventListener('click', async () => {
   if (!confirm('Stop sending trade activity to Discord and delete the saved webhook address?')) return;
   await bot.setWebhook('');
   flash($('hookMsg'), 'Removed');
+  schedule();
+});
+
+// discord bot
+$('botSave').addEventListener('click', async () => {
+  const cfg = { token: $('botToken').value.trim(), userId: $('botUser').value.trim(), channelId: $('botChannel').value.trim() };
+  if (!cfg.token || !cfg.userId) { flash($('botMsg'), 'Enter the bot token and your Discord user ID.', 5000); return; }
+  $('botSave').disabled = true;
+  setText($('botMsg'), 'Connecting…');
+  const r = await bot.setDiscordBot(cfg);
+  $('botSave').disabled = false;
+  $('botToken').value = '';
+  if (r && r.ok) {
+    flash($('botMsg'), r.channelOk
+      ? `Connected as ${r.botName} ✓ — press Send test message`
+      : `Token accepted (${r.botName}), but the bot can't see the channel yet. Press "Invite bot to your server", then Send test message.`, 12000);
+  } else flash($('botMsg'), (r && r.error) || 'Could not connect the bot.', 10000);
+  schedule();
+});
+$('botInvite').addEventListener('click', (e) => { if (e.target.dataset.url) bot.openUrl(e.target.dataset.url); });
+$('botTest').addEventListener('click', async () => {
+  setText($('botMsg'), 'Sending…');
+  const r = await bot.testDiscordBot();
+  flash($('botMsg'), r && r.ok ? 'Sent ✓ — press the button on the message in Discord to check clicks arrive' : (r && r.error) || 'Could not send.', 10000);
+  schedule();
+});
+$('botRemove').addEventListener('click', async () => {
+  if (!confirm('Disconnect the Discord bot and delete its saved token?')) return;
+  await bot.removeDiscordBot();
+  flash($('botMsg'), 'Removed');
   schedule();
 });
 

@@ -163,6 +163,7 @@ class PaperBroker {
   _close(pos, x) {
     const t = {
       id: newId('trd'),
+      positionId: pos.id,
       slug: pos.slug,
       title: pos.title,
       outcome: pos.outcome,

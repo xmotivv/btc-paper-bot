@@ -115,6 +115,24 @@ function saveWebhook(url) {
   return true;
 }
 
+// …and so is the Discord bot's token, with the channel and the one user it obeys.
+const botFile = () => path.join(app.getPath('userData'), 'discord-bot.bin');
+
+function saveBot(cfg) {
+  if (!cfg) { try { fs.unlinkSync(botFile()); } catch { /* nothing saved */ } return true; }
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  fs.writeFileSync(botFile(), safeStorage.encryptString(JSON.stringify(cfg)));
+  return true;
+}
+
+function loadBot() {
+  try {
+    return safeStorage.isEncryptionAvailable() ? JSON.parse(safeStorage.decryptString(fs.readFileSync(botFile()))) : null;
+  } catch {
+    return null;
+  }
+}
+
 function loadWebhook() {
   try {
     return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(fs.readFileSync(hookFile())) : null;
@@ -155,6 +173,16 @@ function initIpc() {
     return r;
   });
   ipcMain.handle('webhook-test', () => engine.testWebhook());
+  ipcMain.handle('discord-bot-set', async (_e, cfg) => {
+    const c = cfg || {};
+    const token = String(c.token || '').trim();
+    const userId = String(c.userId || '').trim();
+    const r = await engine.setDiscordBot({ token, userId, channelId: c.channelId });
+    if (r.ok) r.remembered = saveBot({ token, userId, channelId: r.channelId });
+    return r;
+  });
+  ipcMain.handle('discord-bot-remove', () => { saveBot(null); return engine.removeDiscordBot(); });
+  ipcMain.handle('discord-bot-test', () => engine.testDiscordBot());
   ipcMain.handle('update-settings', (_e, patch) => {
     if (patch && 'keepAwake' in patch) {
       engine.settings.keepAwake = !!patch.keepAwake;
@@ -203,6 +231,8 @@ app.whenReady().then(() => {
   }
   const hook = loadWebhook();
   if (hook) engine.setWebhook(hook);
+  const botCfg = loadBot();
+  if (botCfg) engine.setDiscordBot(botCfg).then((r) => { if (r.error) log.warn(`Saved Discord bot could not connect: ${r.error}`); });
   // Reconnect a saved key so balances show up, but live trading always starts switched off.
   const saved = loadCredentials();
   if (saved) engine.connectLive(saved, { switchVenue: false }).then((r) => { if (r.error) log.warn(`Saved Polymarket US key could not connect: ${r.error}`); });
@@ -213,7 +243,7 @@ app.on('second-instance', () => {
 });
 
 app.on('before-quit', () => {
-  if (engine) engine.stop();
+  if (engine) { engine.stop(); engine.discord.stop(); }
   if (store) store.close();
 });
 

@@ -19,6 +19,8 @@ const { BtcStream, BookStream, ChainlinkStream } = require('./streams');
 const us = require('./us');
 const { LiveTrader } = require('./live');
 const { DiscordNotifier, formatActivity } = require('./notify');
+const { DiscordBot } = require('./discordBot');
+const { PositionCards } = require('./discordCards');
 
 const DEFAULT_SETTINGS = {
   windowKey: '15m',
@@ -119,6 +121,12 @@ class Engine extends EventEmitter {
     this.usStream = null; // Polymarket US real-time order book (needs a connected API key)
     this.live = new LiveTrader({ state: saved.live || {}, log: (level, msg) => this._log(level, msg), now, fetchImpl });
     this.notifier = new DiscordNotifier({ fetchImpl }); // the webhook address is supplied at runtime, never saved here
+    // Optional Discord bot: one card per open position with live P&L and a Close button.
+    this.discord = new DiscordBot({ fetchImpl, WebSocketImpl: this.WS });
+    this.cards = new PositionCards({ bot: this.discord, state: saved.discordCards, now });
+    this.discord.on('interaction', (i) => { this._onDiscordInteraction(i).catch((e) => this._warn('discord-click', 'warn', `Discord button: ${e.message}`)); });
+    this.discord.on('problem', (msg) => { this._log('error', `Discord bot: ${msg}`); this._emit(); });
+    this.discord.on('ready', () => { this._syncCards(); this._emit(); });
     this._bookTimer = null;
     this._marketRefreshAt = 0;
     this._accountAt = 0;
@@ -347,6 +355,7 @@ class Engine extends EventEmitter {
         idx: this._us && this.index.live ? this.index.price : undefined,
       });
     }
+    this._syncCards();
     this._persist();
     if (errors.length) throw errors[0];
   }
@@ -1116,6 +1125,7 @@ class Engine extends EventEmitter {
         };
       }),
       notify: this.notifier.status(),
+      discord: { ...this.discord.status(), cards: this.cards.cards.size },
       live: {
         connected: this.live.connected,
         armed: this.live.armed,
@@ -1167,6 +1177,7 @@ class Engine extends EventEmitter {
       strategyState: this.strategyState,
       pendingSettle: this.pendingSettle,
       live: this.live.snapshot(),
+      discordCards: this.cards.snapshot(),
     }, soon);
   }
 
@@ -1177,6 +1188,114 @@ class Engine extends EventEmitter {
     if (this.notifier.enabled) {
       const line = formatActivity(level, msg, { includePaper: this.settings.notifyPaper !== false });
       if (line) this.notifier.push(line);
+    }
+    // The bot's cards cover individual positions; these are the events a card can't show.
+    if (this.discord && this.discord.ready && (/^LIVE TRADING\b/.test(msg) || (level === 'error' && /^\[LIVE\b/.test(msg)))) {
+      this.discord.send({ content: `${level === 'error' ? '⚠️' : '🔴'} **LIVE**  ${msg}`.slice(0, 1900), allowed_mentions: { parse: [] } }).catch(() => {});
+    }
+  }
+
+  // -------------------------------------------------------------- discord bot
+  /**
+   * Connect a Discord bot. `channelId` may be left empty when a webhook is set:
+   * the bot then uses the webhook's channel. Returns { ok, botName, channelId,
+   * inviteUrl, channelOk } or { error }.
+   */
+  async setDiscordBot({ token, channelId, userId } = {}) {
+    let channel = String(channelId || '').trim();
+    if (!channel && this.notifier.url) {
+      try { channel = String((await (await this.fetch(this.notifier.url)).json()).channel_id || ''); } catch { /* ask for it instead */ }
+    }
+    const r = this.discord.configure({ token, channelId: channel, userId });
+    if (r.error) return r;
+    let v;
+    try {
+      v = await this.discord.verify();
+    } catch (e) {
+      this.discord.clear();
+      this._emit();
+      return { error: e.message };
+    }
+    this.discord.start();
+    this._log('info', `Discord bot set up as "${v.botName}"${v.channelOk ? '' : ' — it cannot see the channel yet; invite it to your server'}`);
+    this._emit();
+    return { ok: true, botName: v.botName, channelId: channel, inviteUrl: this.discord.inviteUrl(), channelOk: v.channelOk, channelError: v.channelError };
+  }
+
+  removeDiscordBot() {
+    this.discord.clear();
+    this.cards.cards.clear();
+    this._log('info', 'Discord bot removed');
+    this._persist(true);
+    this._emit();
+    return { ok: true };
+  }
+
+  /** Post a message with a button, to check both directions work. */
+  async testDiscordBot() {
+    if (!this.discord.configured) return { error: 'Set up the bot first.' };
+    try {
+      await this.discord.send({
+        content: '✅ BTC Paper Bot is connected. Press the button to check that clicks reach the bot.',
+        components: [{ type: 1, components: [{ type: 2, style: 1, label: 'Test button', custom_id: 'test:1' }] }],
+        allowed_mentions: { parse: [] },
+      });
+      return { ok: true, listening: this.discord.ready };
+    } catch (e) {
+      this.discord.lastError = e.message;
+      this._emit();
+      return { error: e.message };
+    }
+  }
+
+  /** Bring the Discord cards in line with the open positions. Runs in the background. */
+  _syncCards() {
+    if (!this.discord.ready) return;
+    const m = this.market;
+    const nowSec = this.now() / 1000;
+    const open = (p) => !!m && p.slug === m.slug && nowSec < m.end;
+    const card = (p, live) => ({ ...p, live, strategyName: this._name(p.strategy), canClose: open(p) && (!live || this.live.connected) });
+    const positions = [
+      ...this.live.positions.map((p) => card(p, true)),
+      ...(this.settings.notifyPaper !== false ? this.broker.positions.map((p) => card(p, false)) : []),
+    ];
+    if (!positions.length && !this.cards.cards.size) return;
+    this.cards.sync(positions, (id) => this._tradesFor(id)).catch(() => {});
+  }
+
+  _tradesFor(positionId) {
+    return [...this.broker.trades.slice(-300), ...this.live.trades.slice(-300)].filter((t) => t.positionId === positionId);
+  }
+
+  /** A button was pressed in Discord. Only the configured user is obeyed. */
+  async _onDiscordInteraction(i) {
+    if (!i || i.type !== 3 || !i.data) return; // 3 = a message button
+    const say = (content, extra = {}) => this.discord.respond(i, { type: 4, data: { content, flags: 64, allowed_mentions: { parse: [] }, ...extra } }); // 64 = only the clicker sees it
+    const who = (i.member && i.member.user && i.member.user.id) || (i.user && i.user.id);
+    if (who !== this.discord.userId) { await say('Only the owner of this bot can use its buttons.'); return; }
+    const [action, id] = String(i.data.custom_id || '').split(':');
+    const describe = (r) => (r.ok
+      ? `Closed at ${r.trade.exitPrice.toFixed(3)} for ${r.trade.pnl >= 0 ? '+' : '−'}$${Math.abs(r.trade.pnl).toFixed(2)}${r.partial ? ' (partly: the book was too thin for the rest)' : ''}.`
+      : r.error);
+    if (action === 'test') { await say('Buttons work ✓ — this bot can hear you.'); return; }
+    if (action === 'close') {
+      if (this.isLivePosition(id)) {
+        // real money: ask once more, as the app does
+        await say('Sell this **REAL** position on Polymarket US now, at the current bid?', {
+          components: [{ type: 1, components: [{ type: 2, style: 4, label: 'Yes, sell it', custom_id: `confirm:${id}` }] }],
+        });
+        return;
+      }
+      const r = this.closePosition(id);
+      await say(describe(r));
+      this._syncCards();
+      return;
+    }
+    if (action === 'confirm') {
+      await this.discord.respond(i, { type: 6 }); // acknowledge inside Discord's 3-second limit, then do the work
+      const r = await this.closeLivePosition(id);
+      await this.discord.followup(i, { content: describe(r), flags: 64, allowed_mentions: { parse: [] } });
+      this._syncCards();
     }
   }
 

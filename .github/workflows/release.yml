@@ -33,7 +33,8 @@ jobs:
         run: |
           V="v$(node -p "require('./package.json').version")"
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          if gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          ASSETS=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$V" -q '[.assets[].name]|join(" ")' 2>/dev/null || true)
+          if [[ "$ASSETS" == *latest.yml* && "$ASSETS" == *.exe* ]]; then
             echo "$V already released — nothing to do."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi

@@ -84,7 +84,10 @@ function initIpc() {
   ipcMain.handle('state', () => ({ ...engine.view(), version: app.getVersion(), update: updateState, keepAwake: blockerId != null }));
   ipcMain.handle('start', () => { engine.start(); setKeepAwake(!!engine.settings.keepAwake); return true; });
   ipcMain.handle('stop', () => { engine.stop(); setKeepAwake(false); return true; });
-  ipcMain.handle('set-strategy', (_e, id, params) => { engine.setStrategy(id, params); return true; });
+  ipcMain.handle('set-strategy-enabled', (_e, id, on) => engine.setStrategyEnabled(String(id), !!on));
+  ipcMain.handle('set-strategy-params', (_e, id, params) => engine.setStrategyParams(String(id), params));
+  ipcMain.handle('close-position', (_e, id) => engine.closePosition(String(id)));
+  ipcMain.handle('close-all-positions', () => engine.closeAllPositions());
   ipcMain.handle('update-settings', (_e, patch) => {
     if (patch && 'keepAwake' in patch) {
       engine.settings.keepAwake = !!patch.keepAwake;
@@ -112,7 +115,7 @@ function initIpc() {
   });
   ipcMain.handle('install-update', () => {
     engine.stop();
-    store.flush();
+    store.close();
     autoUpdater.quitAndInstall();
   });
 }
@@ -139,7 +142,7 @@ app.on('second-instance', () => {
 
 app.on('before-quit', () => {
   if (engine) engine.stop();
-  if (store) store.flush();
+  if (store) store.close();
 });
 
 app.on('window-all-closed', () => app.quit());

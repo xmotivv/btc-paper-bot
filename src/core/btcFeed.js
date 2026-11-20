@@ -1,7 +1,7 @@
 'use strict';
 // BTC/USD spot price from Coinbase's public API (works from the US, no key).
-// Note: Polymarket settles Up/Down markets with the Chainlink BTC/USD feed, so
-// Coinbase is a close proxy, not the exact settlement price.
+// The live price normally arrives over Coinbase's WebSocket (see streams.js);
+// these REST calls are the fallback and the source for historical candles.
 
 const { getJson } = require('./polymarket');
 
@@ -34,4 +34,20 @@ async function fetchMinuteClose(endSec, fetchImpl) {
   return row ? Number(row[4]) : null;
 }
 
-module.exports = { fetchSpot, fetchMinuteOpen, fetchMinuteClose };
+/** Rough average price over the 1-minute candle starting at `startSec`: (open + high + low + close) / 4. */
+async function fetchMinuteAverage(startSec, fetchImpl) {
+  const s = new Date(startSec * 1000).toISOString();
+  const e = new Date((startSec + 60) * 1000).toISOString();
+  const rows = await getJson(`${BASE}/candles?granularity=60&start=${s}&end=${e}`, fetchImpl);
+  const row = Array.isArray(rows) ? rows.find((r) => r[0] === startSec) : null;
+  return row ? (Number(row[1]) + Number(row[2]) + Number(row[3]) + Number(row[4])) / 4 : null;
+}
+
+/** Closes of the most recent 1-minute candles, oldest→newest (seeds the volatility estimate at startup). */
+async function fetchRecentCloses(count, fetchImpl) {
+  const rows = await getJson(`${BASE}/candles?granularity=60`, fetchImpl);
+  if (!Array.isArray(rows)) return [];
+  return rows.slice(0, count).map((r) => Number(r[4])).reverse();
+}
+
+module.exports = { fetchSpot, fetchMinuteOpen, fetchMinuteClose, fetchMinuteAverage, fetchRecentCloses };

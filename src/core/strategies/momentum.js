@@ -7,8 +7,10 @@
  * buy that side — but only while the market hasn't fully priced it in.
  *
  * Every strategy exports: id, name, description, params (UI schema),
- * and onTick(ctx) -> array of actions. See ../strategies/README in the repo.
+ * and onTick(ctx) -> array of actions. See "Adding a strategy" in the README.
  */
+
+const { priceAt } = require('../model');
 
 const params = [
   { key: 'stakeUsd', label: 'Stake per trade ($)', type: 'number', default: 25, min: 1, max: 1000, step: 1 },
@@ -24,20 +26,14 @@ const params = [
   { key: 'maxEntriesPerWindow', label: 'Max entries per window', type: 'number', default: 1, min: 1, max: 5, step: 1 },
 ];
 
-function priceAgo(history, nowMs, secAgo) {
-  const target = nowMs - secAgo * 1000;
-  // history is oldest→newest [{t, p}]; find last sample at or before target
-  for (let i = history.length - 1; i >= 0; i--) if (history[i].t <= target) return history[i].p;
-  return null;
-}
-
 function onTick(ctx) {
   const { now, market, btc, priceToBeat, quotes, positions, p, state } = ctx;
   const actions = [];
   if (!market || !priceToBeat || !btc.price) return actions;
 
   // ---- exits on open positions in this window
-  for (const pos of positions.filter((x) => x.slug === market.slug)) {
+  for (const pos of positions) {
+    if (pos.slug !== market.slug) continue;
     const bid = quotes[pos.outcome] && quotes[pos.outcome].bid;
     if (bid == null) continue;
     if (p.takeProfit > 0 && bid >= p.takeProfit) actions.push({ type: 'sell', positionId: pos.id, reason: `take profit (bid ${bid})` });
@@ -49,13 +45,14 @@ function onTick(ctx) {
   const elapsed = nowSec - market.start;
   const left = market.end - nowSec;
   if (elapsed < p.minElapsedSec || left < p.stopEntrySecBeforeEnd) return actions;
+  state.entries ||= {};
   const keys = Object.keys(state.entries);
   if (keys.length > 50) for (const k of keys.slice(0, keys.length - 50)) delete state.entries[k];
   const entries = state.entries[market.slug] || 0;
   if (entries >= p.maxEntriesPerWindow) return actions;
 
   const moveBps = ((btc.price - priceToBeat) / priceToBeat) * 1e4;
-  const past = priceAgo(btc.history, now, p.lookbackSec);
+  const past = priceAt(btc.history, now - p.lookbackSec * 1000);
   if (past == null) return actions;
   const trendBps = ((btc.price - past) / past) * 1e4;
 

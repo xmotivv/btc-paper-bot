@@ -52,8 +52,16 @@ function normaliseEvent(event, win) {
     const winIdx = prices.findIndex((p) => p >= 0.99);
     if (winIdx >= 0) resolved = outcomes[winIdx];
   }
+  // Polymarket publishes each market's taker-fee coefficient and settlement rule.
+  const sched = m.feeSchedule;
+  let feeRate = null;
+  if (m.feesEnabled === false) feeRate = 0;
+  else if (sched && Number.isFinite(Number(sched.rate))) feeRate = Number(sched.rate);
+  const cfg = m.cryptoMarketConfig;
+  const twapSec = cfg && cfg.twapEnabled ? Number(cfg.twapLookbackSeconds) || 0 : 0;
   return {
     slug: win.slug,
+    conditionId: m.conditionId || null,
     title: event.title || m.question || win.slug,
     start: win.start,
     end: win.end,
@@ -61,6 +69,8 @@ function normaliseEvent(event, win) {
     tokenByOutcome,
     closed: !!m.closed,
     resolved, // 'Up' | 'Down' | null
+    feeRate, // coefficient in fee = shares × feeRate × p × (1 − p); null when not published
+    twapSec, // settlement averages the price over this many seconds (0 = spot)
     url: `https://polymarket.com/event/${win.slug}`,
   };
 }
@@ -71,6 +81,16 @@ async function fetchMarket(win, fetchImpl) {
   return event ? normaliseEvent(event, win) : null;
 }
 
+/**
+ * Winning outcome ('Up' | 'Down') from the order-book API once a market has
+ * resolved, else null. It reports results a few minutes before Gamma does.
+ */
+async function fetchWinner(conditionId, fetchImpl) {
+  const m = await getJson(`${CLOB}/markets/${encodeURIComponent(conditionId)}`, fetchImpl);
+  const w = m && Array.isArray(m.tokens) ? m.tokens.find((t) => t.winner === true) : null;
+  return w ? w.outcome : null;
+}
+
 /** Order book for one outcome token. Sorted: bids high→low, asks low→high. */
 async function fetchBook(tokenId, fetchImpl) {
   const b = await getJson(`${CLOB}/book?token_id=${encodeURIComponent(tokenId)}`, fetchImpl);
@@ -79,8 +99,9 @@ async function fetchBook(tokenId, fetchImpl) {
 
 function normaliseBook(b) {
   const lvl = (x) => ({ price: Number(x.price), size: Number(x.size) });
-  const bids = (b && b.bids ? b.bids.map(lvl) : []).filter((l) => l.size > 0).sort((a, z) => z.price - a.price);
-  const asks = (b && b.asks ? b.asks.map(lvl) : []).filter((l) => l.size > 0).sort((a, z) => a.price - z.price);
+  const ok = (l) => l.size > 0 && l.price > 0;
+  const bids = (b && b.bids ? b.bids.map(lvl) : []).filter(ok).sort((a, z) => z.price - a.price);
+  const asks = (b && b.asks ? b.asks.map(lvl) : []).filter(ok).sort((a, z) => a.price - z.price);
   return {
     bids,
     asks,
@@ -89,4 +110,4 @@ function normaliseBook(b) {
   };
 }
 
-module.exports = { WINDOWS, windowFor, fetchMarket, fetchBook, normaliseEvent, normaliseBook, getJson };
+module.exports = { WINDOWS, windowFor, fetchMarket, fetchWinner, fetchBook, normaliseEvent, normaliseBook, getJson };

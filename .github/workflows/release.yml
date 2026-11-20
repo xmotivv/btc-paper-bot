@@ -44,6 +44,18 @@ jobs:
       - if: steps.check.outputs.skip != 'true'
         run: npm test
 
+      - name: Create version tag
+        if: steps.check.outputs.skip != 'true'
+        shell: bash
+        run: |
+          V="${{ steps.check.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$V" >/dev/null; then
+            git tag "$V"
+            git push origin "$V"
+          fi
+
       - name: Build and publish installer
         if: steps.check.outputs.skip != 'true'
         env:

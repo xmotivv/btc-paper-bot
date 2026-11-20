@@ -15,9 +15,15 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,11 +31,19 @@ jobs:
         with:
           node-version: 22
 
+      - name: Remove broken releases (missing installer or latest.yml)
+        shell: bash
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            -q '.[] | select(([.assets[].name] | join(" ") | (contains("latest.yml") and contains(".exe")) | not)) | .id' |
+          while read -r id; do
+            echo "Deleting incomplete release $id"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id"
+          done
+
       - name: Skip if this version is already released
         id: check
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           V="v$(node -p "require('./package.json').version")"
           echo "version=$V" >> "$GITHUB_OUTPUT"
@@ -45,20 +59,21 @@ jobs:
       - if: steps.check.outputs.skip != 'true'
         run: npm test
 
-      - name: Create version tag
+      - name: Create tag and draft release
         if: steps.check.outputs.skip != 'true'
         shell: bash
         run: |
           V="${{ steps.check.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git ls-remote --exit-code --tags origin "refs/tags/$V" >/dev/null; then
-            git tag "$V"
-            git push origin "$V"
-          fi
+          gh release create "$V" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$V" --draft --notes "BTC Paper Bot $V"
 
-      - name: Build and publish installer
+      - name: Build installer and upload to the draft
         if: steps.check.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win --publish always
+
+      - name: Publish release
+        if: steps.check.outputs.skip != 'true'
+        shell: bash
+        run: |
+          V="${{ steps.check.outputs.version }}"
+          gh release edit "$V" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release view "$V" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name'

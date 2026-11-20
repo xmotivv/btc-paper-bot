@@ -12,11 +12,13 @@
       <span class="logo">₿</span>
       <div>
         <div class="title">BTC Paper Bot</div>
-        <div class="sub">Polymarket BTC Up/Down · paper trading only, no real money</div>
+        <div class="sub" id="subTitle">Polymarket BTC Up/Down · paper trading</div>
       </div>
     </div>
     <div class="header-right">
       <button id="updateBadge" class="badge hidden"></button>
+      <button id="killBtn" class="btn kill hidden" title="Stops all real-money trading at once and cancels any open orders">■ STOP LIVE TRADING</button>
+      <span id="livePill" class="pill hidden"></span>
       <span id="feedPill" class="pill" title="How market data is arriving">—</span>
       <span id="statusPill" class="pill">—</span>
       <button id="toggleBtn" class="btn primary">Start</button>
@@ -30,7 +32,7 @@
       <div class="label">BTC / USD <span class="muted">(Coinbase)</span></div>
       <div id="btcPrice" class="big">—</div>
       <canvas id="btcSpark" height="48"></canvas>
-      <div class="row"><span>Settlement feed <span class="muted">(Chainlink)</span></span><b id="clPrice">—</b></div>
+      <div class="row"><span>Settlement feed <span class="muted" id="clLabel">(Chainlink)</span></span><b id="clPrice">—</b></div>
     </div>
     <div class="card">
       <div class="label">Current market</div>
@@ -68,6 +70,7 @@
     <button data-tab="positions" class="active">Open positions <span id="posCount" class="count hidden"></span></button>
     <button data-tab="trades">Trade history</button>
     <button data-tab="strategy">Strategies <span id="stratCount" class="count hidden"></span></button>
+    <button data-tab="live">Live account <span id="liveCount" class="count hidden"></span></button>
     <button data-tab="settings">Settings</button>
     <button data-tab="log">Activity log</button>
   </nav>
@@ -77,13 +80,13 @@
       <button id="closeAllBtn" class="btn danger" disabled>Close all positions</button>
       <span id="closeMsg" class="muted"></span>
     </div>
-    <table><thead><tr><th>Market</th><th>Strategy</th><th>Side</th><th>Shares</th><th>Entry</th><th>Mark</th><th>Unrealised</th><th>Why</th><th></th></tr></thead><tbody id="positionsBody"></tbody></table>
+    <table><thead><tr><th>Account</th><th>Market</th><th>Strategy</th><th>Side</th><th>Shares</th><th>Entry</th><th>Mark</th><th>Unrealised</th><th>Why</th><th></th></tr></thead><tbody id="positionsBody"></tbody></table>
     <div class="empty" id="positionsEmpty">No open positions.</div>
   </section>
 
   <section class="panel tab hidden" id="tab-trades">
     <div class="toolbar"><button id="exportBtn" class="btn">Export CSV</button></div>
-    <table><thead><tr><th>Closed</th><th>Market</th><th>Strategy</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Exit type</th><th>Entry reason</th></tr></thead><tbody id="tradesBody"></tbody></table>
+    <table><thead><tr><th>Closed</th><th>Account</th><th>Market</th><th>Strategy</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Exit type</th><th>Entry reason</th></tr></thead><tbody id="tradesBody"></tbody></table>
     <div class="empty" id="tradesEmpty">No closed trades yet.</div>
   </section>
 
@@ -92,8 +95,60 @@
     <div id="strategyList"></div>
   </section>
 
+  <section class="panel tab hidden" id="tab-live">
+    <p class="muted intro">Connect a Polymarket US account to get its live order book, see its real balance, and let chosen strategies place real orders. Connecting alone only gives you live data for paper trading. Nothing trades with real money until you also mark a strategy <b>Real money</b> on the Strategies tab and arm live trading here, and it is always switched off again when the app restarts.</p>
+    <div class="live-grid">
+      <div class="live-box">
+        <h3>1 · Connection</h3>
+        <div id="liveStatus" class="live-status">Not connected</div>
+        <form id="liveKeyForm" class="grid-form one">
+          <label>Key ID<input id="liveKeyId" type="text" autocomplete="off" spellcheck="false" /></label>
+          <label>Secret key<input id="liveSecret" type="password" autocomplete="off" spellcheck="false" /></label>
+        </form>
+        <div class="toolbar">
+          <button id="liveConnectBtn" class="btn primary" type="button">Connect</button>
+          <button id="liveDisconnectBtn" class="btn hidden" type="button">Disconnect and forget key</button>
+          <span id="liveConnectMsg" class="muted"></span>
+        </div>
+        <p class="muted small">Create a key at polymarket.us/developer (sign in the same way you do in the app). The secret is shown there once. Here it is stored encrypted by Windows on this PC only, and you can revoke it on that page at any time.</p>
+      </div>
+      <div class="live-box">
+        <h3>2 · Limits</h3>
+        <form id="liveLimitsForm" class="grid-form one">
+          <label>Most a single order may cost ($)<input name="maxOrderUsd" type="number" min="1" step="1" /></label>
+          <label>Most tied up in open positions ($)<input name="maxOpenUsd" type="number" min="1" step="1" /></label>
+          <label>Switch off after losing this much in a day ($)<input name="maxDailyLossUsd" type="number" min="1" step="1" /></label>
+        </form>
+        <div class="toolbar"><button id="liveLimitsBtn" class="btn" type="button">Save limits</button><span id="liveLimitsMsg" class="muted"></span></div>
+        <p class="muted small">A strategy's own stake is cut down to fit these. Orders are sized so that even the worst fill, fees included, stays inside them.</p>
+      </div>
+      <div class="live-box">
+        <h3>3 · Live trading</h3>
+        <div id="liveArmState" class="live-status">Off</div>
+        <div class="toolbar">
+          <button id="liveArmBtn" class="btn danger" type="button" disabled>Arm live trading</button>
+          <button id="liveDisarmBtn" class="btn hidden" type="button">Switch off</button>
+        </div>
+        <div class="row"><span>Strategies allowed real money</span><b id="liveStrategies">none</b></div>
+        <p class="muted small">Switching off stops new orders. Positions already open stay open; close them from Open positions or let them settle.</p>
+      </div>
+      <div class="live-box">
+        <h3>Real account</h3>
+        <div class="row"><span>Cash balance</span><b id="liveCash">—</b></div>
+        <div class="row"><span>Buying power</span><b id="liveBp">—</b></div>
+        <div class="row"><span>In positions this bot opened</span><b id="liveOpenUsd">—</b></div>
+        <div class="row"><span>Bot's realised P&amp;L today</span><b id="liveDayPnl">—</b></div>
+        <div class="row"><span>Bot's live trades · win rate</span><b id="liveTrades">—</b></div>
+        <div class="row"><span>Orders sent today</span><b id="liveOrders">—</b></div>
+        <div class="label top-gap">Positions on the exchange</div>
+        <div id="liveExchangePositions" class="muted small">—</div>
+      </div>
+    </div>
+  </section>
+
   <section class="panel tab hidden" id="tab-settings">
     <form id="settingsForm" class="grid-form">
+      <label>Exchange<select name="venue"><option value="global">polymarket.com (global)</option><option value="us">Polymarket US</option></select></label>
       <label>Market window<select name="windowKey"><option value="15m">15 minutes</option><option value="5m">5 minutes</option></select></label>
       <label>Fees<select name="feeModel"><option value="market">Polymarket's fee curve (recommended)</option><option value="flat">Flat rate below</option></select></label>
       <label>Flat fee rate (fraction of notional)<input name="feeRate" type="number" min="0" max="0.5" step="0.001" /></label>

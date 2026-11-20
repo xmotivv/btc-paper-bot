@@ -15,9 +15,10 @@ const RTDS_WS = 'wss://ws-live-data.polymarket.com';
 
 /** A WebSocket that reconnects with backoff and restarts itself if it goes quiet. */
 class Socket extends EventEmitter {
-  constructor({ url, WebSocketImpl, pingMs = 0, pingText = 'PING', stallMs = 15000 }) {
+  constructor({ url, WebSocketImpl, pingMs = 0, pingText = 'PING', stallMs = 15000, connectArgs = null }) {
     super();
     this.url = url;
+    this.connectArgs = connectArgs; // () => extra constructor arguments, e.g. [{ headers }] for a signed handshake
     this.WS = WebSocketImpl;
     this.pingMs = pingMs;
     this.pingText = pingText;
@@ -51,7 +52,7 @@ class Socket extends EventEmitter {
   _connect() {
     if (!this.wanted) return;
     let ws;
-    try { ws = new this.WS(this.url); } catch { this._scheduleRetry(); return; }
+    try { ws = this.connectArgs ? new this.WS(this.url, ...this.connectArgs()) : new this.WS(this.url); } catch { this._scheduleRetry(); return; }
     this.ws = ws;
     ws.onopen = () => {
       if (ws !== this.ws) return;

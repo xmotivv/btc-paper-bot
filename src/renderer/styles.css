@@ -87,3 +87,26 @@ details[open] summary { margin-bottom: 10px; }
 .switch input:checked + .slider::before { transform: translateX(16px); background: #fff; }
 .switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 1150px) { .strategy-stats { margin-left: 0; width: 100%; justify-content: space-between; } }
+
+/* ---- live account */
+.btn.kill { background: #c0392b; border-color: #e74c3c; color: #fff; font-weight: 700; letter-spacing: .02em; }
+.btn.kill:hover { background: #e74c3c; }
+.pill.live { color: #fff; background: #c0392b; border-color: #e74c3c; }
+.count.hot { background: #c0392b; border-color: #e74c3c; color: #fff; }
+.tag { display: inline-block; padding: 0 7px; border-radius: 4px; font-size: 11px; line-height: 17px; color: var(--muted); border: 1px solid var(--line); }
+.tag.live { color: #fff; background: #c0392b; border-color: #e74c3c; font-weight: 700; }
+.live-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.live-box { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.live-box h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.live-box input { background: var(--panel); }
+.live-status { padding: 6px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+.live-status.ok { color: var(--up); border-color: #1f5a3a; }
+.live-status.hot { color: #fff; background: #c0392b; border-color: #e74c3c; }
+.grid-form.one { grid-template-columns: 1fr; }
+.real-money { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.real-money input { margin: 0; accent-color: #e74c3c; }
+.real-money:has(input:checked) { color: #ffb3b3; border-color: #7a2a2a; }
+.real-money:has(input:disabled) { opacity: .45; cursor: default; }
+.strategy.live { border-color: #e74c3c; box-shadow: 0 0 0 1px #e74c3c inset; }
+.live-line { color: #ffb3b3; font-size: 12px; margin: 4px 0 8px !important; font-variant-numeric: tabular-nums; }
+@media (max-width: 1150px) { .live-grid { grid-template-columns: 1fr; } }

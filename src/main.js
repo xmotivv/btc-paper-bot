@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
@@ -79,6 +79,32 @@ function initUpdater() {
   setInterval(check, 30 * 60 * 1000);
 }
 
+// --------------------------------------------------------- live credentials
+// The Polymarket US API key is kept encrypted with the operating system's own
+// credential protection (Windows DPAPI), in a file separate from the bot's
+// data folder. It is never written in plain text, never logged, and never sent
+// to the window after it has been entered.
+const credsFile = () => path.join(app.getPath('userData'), 'polymarket-us-key.bin');
+
+function saveCredentials(creds) {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  fs.writeFileSync(credsFile(), safeStorage.encryptString(JSON.stringify(creds)));
+  return true;
+}
+
+function loadCredentials() {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return null;
+    return JSON.parse(safeStorage.decryptString(fs.readFileSync(credsFile())));
+  } catch {
+    return null;
+  }
+}
+
+function forgetCredentials() {
+  try { fs.unlinkSync(credsFile()); } catch { /* nothing saved */ }
+}
+
 // ---------------------------------------------------------------------- IPC
 function initIpc() {
   ipcMain.handle('state', () => ({ ...engine.view(), version: app.getVersion(), update: updateState, keepAwake: blockerId != null }));
@@ -86,8 +112,24 @@ function initIpc() {
   ipcMain.handle('stop', () => { engine.stop(); setKeepAwake(false); return true; });
   ipcMain.handle('set-strategy-enabled', (_e, id, on) => engine.setStrategyEnabled(String(id), !!on));
   ipcMain.handle('set-strategy-params', (_e, id, params) => engine.setStrategyParams(String(id), params));
-  ipcMain.handle('close-position', (_e, id) => engine.closePosition(String(id)));
-  ipcMain.handle('close-all-positions', () => engine.closeAllPositions());
+  ipcMain.handle('close-position', (_e, id) => (engine.isLivePosition(String(id)) ? engine.closeLivePosition(String(id)) : engine.closePosition(String(id))));
+  ipcMain.handle('close-all-positions', async () => {
+    const paper = engine.closeAllPositions();
+    const live = await engine.closeAllLivePositions();
+    return { closed: paper.closed + live.closed, failed: paper.failed + live.failed };
+  });
+  ipcMain.handle('live-connect', async (_e, keyId, secretKey) => {
+    const creds = { keyId: String(keyId || '').trim(), secretKey: String(secretKey || '').trim() };
+    const r = await engine.connectLive(creds);
+    if (r.ok) r.remembered = saveCredentials(creds);
+    return r;
+  });
+  ipcMain.handle('live-disconnect', () => { forgetCredentials(); return engine.disconnectLive(); });
+  ipcMain.handle('live-arm', () => engine.armLive());
+  ipcMain.handle('live-disarm', () => engine.disarmLive());
+  ipcMain.handle('live-kill', () => engine.killLive());
+  ipcMain.handle('live-limits', (_e, patch) => engine.setLiveLimits(patch || {}));
+  ipcMain.handle('set-strategy-live', (_e, id, on) => engine.setStrategyLive(String(id), !!on));
   ipcMain.handle('update-settings', (_e, patch) => {
     if (patch && 'keepAwake' in patch) {
       engine.settings.keepAwake = !!patch.keepAwake;
@@ -134,6 +176,9 @@ app.whenReady().then(() => {
     engine.start();
     setKeepAwake(!!engine.settings.keepAwake);
   }
+  // Reconnect a saved key so balances show up, but live trading always starts switched off.
+  const saved = loadCredentials();
+  if (saved) engine.connectLive(saved, { switchVenue: false }).then((r) => { if (r.error) log.warn(`Saved Polymarket US key could not connect: ${r.error}`); });
 });
 
 app.on('second-instance', () => {

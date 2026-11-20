@@ -109,16 +109,22 @@ function render() {
   const on = v.strategyStats.filter((s) => s.enabled).length;
   setText($('stratCount'), `${on} on`);
   $('stratCount').classList.toggle('hidden', on === 0);
+  const liveOn = v.strategyStats.filter((s) => s.liveNow).length;
+  setText($('liveCount'), v.live && v.live.armed ? `armed · ${liveOn}` : 'connected');
+  setClass($('liveCount'), `count${v.live && v.live.armed ? ' hot' : ''}${v.live && v.live.connected ? '' : ' hidden'}`);
 
   if (!strategiesBuilt) buildStrategies(v);
   if (!settingsBuilt) buildSettings(v);
   if (activeTab === 'positions') renderPositions(v);
   else if (activeTab === 'trades') renderTrades(v);
   else if (activeTab === 'strategy') renderStrategies(v);
+  else if (activeTab === 'live') renderLive(v);
   else if (activeTab === 'log') renderLog(v);
 }
 
 function renderHeader(v) {
+  const L = v.live || {};
+  const us = v.venue === 'us';
   setText($('statusPill'), v.running ? '● Running' : 'Stopped');
   setClass($('statusPill'), `pill ${v.running ? 'on' : 'off'}`);
   setText($('toggleBtn'), v.running ? 'Stop' : 'Start');
@@ -126,9 +132,20 @@ function renderHeader(v) {
   const streaming = f.btc === 'stream' && f.books === 'stream';
   const fp = $('feedPill');
   if (!v.running) { setText(fp, 'Feeds idle'); setClass(fp, 'pill off'); }
+  else if (us) {
+    const label = { stream: '⚡ US feed · live', poll: 'US feed · polling', delayed: L.connected ? 'US feed · reconnecting…' : 'US feed · delayed — connect a key' }[f.books] || 'US feed';
+    setText(fp, label);
+    setClass(fp, `pill ${f.books === 'delayed' ? 'warn' : 'on'}`);
+    fp.title = f.books === 'delayed' ? 'Polymarket US only gives a live order book to connected API keys. The public one is up to 30 seconds old, so strategies wait.' : 'Order book is current';
+  }
   else if (streaming) { setText(fp, '⚡ Live stream'); setClass(fp, 'pill on'); }
   else if (v.settings.streaming) { setText(fp, 'Connecting… (polling)'); setClass(fp, 'pill warn'); }
   else { setText(fp, 'Polling'); setClass(fp, 'pill warn'); }
+  setText($('subTitle'), `${us ? 'Polymarket US' : 'Polymarket'} BTC Up/Down · ${L.armed ? 'LIVE TRADING ARMED — real money' : 'paper trading'}`);
+  const lp = $('livePill');
+  lp.classList.toggle('hidden', !L.connected);
+  if (L.connected) { setText(lp, L.armed ? '● LIVE' : 'Account connected'); setClass(lp, `pill ${L.armed ? 'live' : 'off'}`); }
+  $('killBtn').classList.toggle('hidden', !L.armed);
   $('errorBar').classList.toggle('hidden', !v.lastError);
   setText($('errorBar'), v.lastError ? `Last error: ${v.lastError} (retrying)` : '');
 }
@@ -136,12 +153,13 @@ function renderHeader(v) {
 function renderCards(v) {
   setText($('btcPrice'), usd(v.btc));
   setText($('clPrice'), v.chainlink ? usd(v.chainlink) : v.running ? 'connecting…' : '—');
+  setText($('clLabel'), v.venue === 'us' ? '(BRTI, 60s average)' : '(Chainlink)');
 
   const m = v.market;
   setText($('marketTitle'), m ? m.title : 'Waiting for market…');
   $('marketTitle').dataset.url = m ? m.url : '';
   setText($('ptb'), usd(v.priceToBeat));
-  setText($('ptbSource'), { chainlink: '(Chainlink)', coinbase: '(estimate)' }[v.ptbSource] || '');
+  setText($('ptbSource'), { chainlink: '(Chainlink)', coinbase: '(estimate)', index: '(index)', official: '(official)' }[v.ptbSource] || '');
   if (v.btc && v.priceToBeat) {
     const ref = v.chainlink || v.btc;
     const bps = ((ref - v.priceToBeat) / v.priceToBeat) * 1e4;
@@ -195,6 +213,7 @@ function renderPositions(v) {
     for (const p of v.positions) {
       const tr = el('tr');
       const cells = {
+        account: el('td'),
         market: el('td', '', p.title),
         strategy: el('td', '', p.strategyName),
         side: el('td', p.outcome === 'Up' ? 'pos' : 'neg', p.outcome),
@@ -205,8 +224,10 @@ function renderPositions(v) {
         why: el('td', 'reason', p.reason),
         act: el('td', 'act'),
       };
+      cells.account.append(el('span', p.live ? 'tag live' : 'tag', p.live ? 'LIVE' : 'paper'));
       const btn = el('button', 'btn small danger', 'Close');
       btn.dataset.close = p.id;
+      if (p.live) btn.dataset.live = '1';
       cells.act.append(btn);
       tr.append(...Object.values(cells));
       body.append(tr);
@@ -228,7 +249,7 @@ function renderPositions(v) {
     if (!row.btn.dataset.busy) {
       row.btn.disabled = !p.canClose;
       setText(row.btn, p.canClose ? 'Close' : 'Settling…');
-      row.btn.title = p.canClose ? 'Sell this position into the live bids now' : 'The window has ended; this settles automatically';
+      row.btn.title = !p.canClose ? 'The window has ended; this settles automatically' : p.live ? 'Sell this REAL position on Polymarket US now' : 'Sell this paper position into the live bids now';
     }
   }
   $('closeAllBtn').disabled = closable === 0;
@@ -243,6 +264,7 @@ function renderTrades(v) {
     const tr = el('tr');
     tr.append(
       el('td', '', new Date(t.closedAt).toLocaleString()),
+      (() => { const td = el('td'); td.append(el('span', t.live ? 'tag live' : 'tag', t.live ? 'LIVE' : 'paper')); return td; })(),
       el('td', '', t.title),
       el('td', '', t.strategyName),
       el('td', t.outcome === 'Up' ? 'pos' : 'neg', t.outcome),
@@ -292,7 +314,13 @@ function buildStrategies(v) {
       cell.dataset.stat = k;
       stats.append(cell);
     }
-    head.append(sw, el('div', 'strategy-name', s.name), stats);
+    const real = el('label', 'real-money');
+    const rcb = el('input');
+    rcb.type = 'checkbox';
+    rcb.dataset.live = s.id;
+    real.append(rcb, el('span', '', 'Real money'));
+    real.title = 'Let this strategy place real orders on Polymarket US while live trading is armed';
+    head.append(sw, el('div', 'strategy-name', s.name), real, stats);
 
     const details = el('details');
     details.append(el('summary', '', 'Settings'));
@@ -320,7 +348,9 @@ function buildStrategies(v) {
     bar.append(apply, reset, el('span', 'muted saved'));
     details.append(form, bar);
 
-    card.append(head, el('p', 'muted', s.description), details);
+    const liveLine = el('p', 'live-line hidden');
+    liveLine.dataset.liveLine = s.id;
+    card.append(head, el('p', 'muted', s.description), liveLine, details);
     list.append(card);
   }
 }
@@ -329,7 +359,17 @@ function renderStrategies(v) {
   for (const st of v.strategyStats) {
     const card = document.querySelector(`.strategy[data-id="${st.id}"]`);
     if (!card) continue;
-    setClass(card, `strategy${st.enabled ? ' on' : ''}`);
+    setClass(card, `strategy${st.enabled ? ' on' : ''}${st.liveNow ? ' live' : ''}`);
+    const rcb = card.querySelector('[data-live]');
+    if (!rcb.dataset.busy) rcb.checked = st.liveAllowed;
+    rcb.disabled = !(v.live && v.live.connected) && !st.liveAllowed;
+    const line = card.querySelector('[data-live-line]');
+    const showLive = st.liveAllowed || st.liveTrades > 0 || st.liveOpen > 0;
+    line.classList.toggle('hidden', !showLive);
+    if (showLive) {
+      const state = st.liveNow ? 'TRADING REAL MONEY NOW' : st.liveAllowed ? (v.live && v.live.armed ? 'real money allowed (strategy is switched off)' : 'real money allowed — waiting for live trading to be armed') : 'real money off';
+      setText(line, `${state} · live trades ${st.liveTrades} · live P&L ${st.liveTrades ? signed(st.livePnl) : '—'} · open ${st.liveOpen}${st.liveOpen ? ` (${signed(st.liveUnrealised)})` : ''}`);
+    }
     const cb = card.querySelector('[data-toggle]');
     if (!cb.dataset.busy) cb.checked = st.enabled;
     const stat = (k) => card.querySelector(`[data-stat="${k}"] b`);
@@ -350,6 +390,38 @@ function renderStrategies(v) {
       if (input.name && !input.dataset.dirty) input.value = s.values[input.name];
     }
   }
+}
+
+// ---- live account
+let limitsBuilt = false;
+function renderLive(v) {
+  const L = v.live || {};
+  setText($('liveStatus'), L.connected ? `Connected · key ${L.key}` : 'Not connected');
+  setClass($('liveStatus'), `live-status${L.connected ? ' ok' : ''}`);
+  $('liveKeyForm').classList.toggle('hidden', !!L.connected);
+  $('liveConnectBtn').classList.toggle('hidden', !!L.connected);
+  $('liveDisconnectBtn').classList.toggle('hidden', !L.connected);
+  if (!limitsBuilt && L.limits) {
+    limitsBuilt = true;
+    for (const input of $('liveLimitsForm').elements) if (input.name) input.value = L.limits[input.name];
+  }
+  const allowed = v.strategyStats.filter((s) => s.liveAllowed).map((s) => (v.strategies.find((x) => x.id === s.id) || {}).name || s.id);
+  setText($('liveStrategies'), allowed.length ? allowed.join(', ') : 'none — tick Real money on the Strategies tab');
+  setText($('liveArmState'), L.armed ? 'ARMED — strategies marked Real money are placing real orders' : L.connected ? (v.venue === 'us' ? 'Off' : 'Off — set Exchange to Polymarket US in Settings') : 'Off — connect a key first');
+  setClass($('liveArmState'), `live-status${L.armed ? ' hot' : ''}`);
+  $('liveArmBtn').classList.toggle('hidden', !!L.armed);
+  $('liveArmBtn').disabled = !L.connected || v.venue !== 'us' || !v.running;
+  $('liveDisarmBtn').classList.toggle('hidden', !L.armed);
+  const a = L.account;
+  setText($('liveCash'), a && a.cash != null ? usd(a.cash) : '—');
+  setText($('liveBp'), a && a.buyingPower != null ? usd(a.buyingPower) : '—');
+  setText($('liveOpenUsd'), L.connected || L.openUsd ? usd(L.openUsd) : '—');
+  setText($('liveDayPnl'), L.stats && L.stats.trades ? signed(L.dayPnl) : '—');
+  setClass($('liveDayPnl'), cls(L.dayPnl));
+  setText($('liveTrades'), L.stats && L.stats.trades ? `${L.stats.trades} · ${pct(L.stats.winRate)} · ${signed(L.stats.pnl)} all time` : '0');
+  setText($('liveOrders'), L.connected ? String(L.ordersToday) : '—');
+  const ex = a && a.positions ? a.positions : [];
+  setText($('liveExchangePositions'), !L.connected ? '—' : ex.length ? ex.map((p) => `${p.title}: ${p.net > 0 ? '+' : ''}${p.net}`).join('  ·  ') : 'none');
 }
 
 function buildSettings(v) {
@@ -396,6 +468,7 @@ $('exportBtn').addEventListener('click', async () => { await bot.exportCsv(); })
 $('positionsBody').addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-close]');
   if (!btn || btn.disabled) return;
+  if (btn.dataset.live && !confirm('Sell this REAL position on Polymarket US now, at the current bid?')) return;
   btn.dataset.busy = '1';
   btn.disabled = true;
   btn.textContent = 'Closing…';
@@ -410,13 +483,23 @@ $('positionsBody').addEventListener('click', async (e) => {
 });
 $('closeAllBtn').addEventListener('click', async () => {
   const n = view ? view.positions.filter((p) => p.canClose).length : 0;
-  if (!n || !confirm(`Close ${n} open position${n === 1 ? '' : 's'} at the current bid?`)) return;
+  const real = view ? view.positions.filter((p) => p.canClose && p.live).length : 0;
+  if (!n || !confirm(`Close ${n} open position${n === 1 ? '' : 's'} at the current bid?${real ? `\n\n${real} of them ${real === 1 ? 'is a REAL position' : 'are REAL positions'} on Polymarket US and will be sold for real.` : ''}`)) return;
   const r = await bot.closeAllPositions();
   flash($('closeMsg'), `Closed ${r.closed} position${r.closed === 1 ? '' : 's'}${r.failed ? `; ${r.failed} could not be closed (window ended or no bids)` : ''}.`, 5000);
 });
 
 // strategies
 $('strategyList').addEventListener('change', async (e) => {
+  const rcb = e.target.closest('input[data-live]');
+  if (rcb) {
+    const name = (view.strategies.find((s) => s.id === rcb.dataset.live) || {}).name || rcb.dataset.live;
+    if (rcb.checked && !confirm(`Allow "${name}" to trade REAL money?\n\nWhile live trading is armed it will place real orders on your Polymarket US account, within your limits. Its paper results so far do not show that it is profitable.`)) { rcb.checked = false; return; }
+    rcb.dataset.busy = '1';
+    await bot.setStrategyLive(rcb.dataset.live, rcb.checked);
+    delete rcb.dataset.busy;
+    return;
+  }
   const cb = e.target.closest('input[data-toggle]');
   if (!cb) return;
   cb.dataset.busy = '1';
@@ -441,6 +524,44 @@ $('strategyList').addEventListener('click', async (e) => {
   flash((apply || defaults).parentElement.querySelector('.saved'), defaults ? 'Defaults restored ✓' : 'Applied ✓');
 });
 $('strategyList').addEventListener('submit', (e) => e.preventDefault());
+
+// live account
+$('liveConnectBtn').addEventListener('click', async () => {
+  const keyId = $('liveKeyId').value.trim();
+  const secret = $('liveSecret').value.trim();
+  if (!keyId || !secret) { flash($('liveConnectMsg'), 'Enter both the Key ID and the Secret key.', 4000); return; }
+  $('liveConnectBtn').disabled = true;
+  setText($('liveConnectMsg'), 'Connecting…');
+  const r = await bot.liveConnect(keyId, secret);
+  $('liveConnectBtn').disabled = false;
+  $('liveSecret').value = '';
+  if (r && r.ok) { $('liveKeyId').value = ''; flash($('liveConnectMsg'), r.remembered ? 'Connected ✓ (key saved encrypted on this PC)' : 'Connected ✓ (could not save the key securely, so you will need to enter it again next time)', 7000); }
+  else flash($('liveConnectMsg'), (r && r.error) || 'Could not connect.', 9000);
+  settingsBuilt = false;
+  schedule();
+});
+$('liveDisconnectBtn').addEventListener('click', async () => {
+  if (!confirm('Disconnect and delete the saved key from this PC? Live trading will stop. Open positions stay on your account.')) return;
+  await bot.liveDisconnect();
+  schedule();
+});
+$('liveLimitsBtn').addEventListener('click', async () => {
+  const patch = Object.fromEntries([...new FormData($('liveLimitsForm')).entries()].map(([k, val]) => [k, Number(val)]));
+  await bot.liveLimits(patch);
+  limitsBuilt = false;
+  flash($('liveLimitsMsg'), 'Saved ✓');
+});
+$('liveArmBtn').addEventListener('click', async () => {
+  const L = view.live;
+  const names = view.strategyStats.filter((s) => s.liveAllowed && s.enabled).map((s) => (view.strategies.find((x) => x.id === s.id) || {}).name);
+  const who = names.length ? names.join(', ') : 'none yet (tick Real money on a strategy)';
+  if (!confirm(`Arm live trading with REAL money?\n\nStrategies that will trade: ${who}\nMost per order: ${usd(L.limits.maxOrderUsd)}\nMost in open positions: ${usd(L.limits.maxOpenUsd)}\nSwitches off after losing: ${usd(L.limits.maxDailyLossUsd)} in a day\n\nYou can stop at any moment with the red STOP button at the top.`)) return;
+  const r = await bot.liveArm();
+  if (r && r.error) alert(r.error);
+  schedule();
+});
+$('liveDisarmBtn').addEventListener('click', async () => { await bot.liveDisarm(); schedule(); });
+$('killBtn').addEventListener('click', async () => { await bot.liveKill(); schedule(); });
 
 // settings
 $('saveSettings').addEventListener('click', async () => {

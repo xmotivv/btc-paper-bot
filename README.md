@@ -1,8 +1,10 @@
 # BTC Paper Bot
 
-A Windows desktop app that **paper-trades** Polymarket's Bitcoin "Up or Down" markets (15-minute or 5-minute windows). It uses live BTC prices and real Polymarket order books, but **every trade is simulated. It never places real orders and needs no wallet or API keys.**
+A Windows desktop app that trades Polymarket's Bitcoin "Up or Down" markets (15-minute or 5-minute windows) using live BTC prices and real order books.
 
-Use it to try out strategies, collect data, and see what would have worked before you risk real money.
+**Out of the box every trade is simulated**: it paper-trades, places no real orders and needs no wallet or API keys. Use it to try out strategies, collect data, and see what would have worked before you risk real money.
+
+If you have a **Polymarket US** account you can also connect it and let chosen strategies trade real money, inside limits you set. That is strictly opt-in; see [Trading a real Polymarket US account](#trading-a-real-polymarket-us-account).
 
 ## Install
 
@@ -36,6 +38,8 @@ The bot is event driven. It keeps three public WebSocket feeds open (no keys nee
 | Chainlink BTC/USD | Polymarket's real-time data service | The feed these markets settle on |
 
 Each feed reconnects by itself. While one is down the bot polls REST for it instead, so it keeps working without WebSockets (turn streaming off in **Settings** to always poll). The header shows **⚡ Live stream** or **Polling**.
+
+That describes polymarket.com, the default exchange. With **Settings → Exchange** set to Polymarket US the Coinbase stream is the same, but the order book and settlement index are read from Polymarket US's API on a timer; see [What is different on Polymarket US](#what-is-different-on-polymarket-us).
 
 About once a second a housekeeping pass also:
 
@@ -84,6 +88,52 @@ The top cards show what the models see: **Model: chance of Up** is the fair-valu
 Every row under **Open positions** has a **Close** button that sells that position into the live bids immediately; **Close all positions** does the same for everything open. Manual exits are marked `manual` in the trade history. After you close a position by hand, the strategy that opened it stays out of that market for the rest of the window, so it won't jump straight back in.
 
 A position can only be sold while its window is still running. Once the window ends it shows **Settling…** and is paid out automatically when the result arrives.
+
+## Trading a real Polymarket US account
+
+Polymarket US (the CFTC-regulated exchange, [polymarket.us](https://polymarket.us)) lists its own BTC Up/Down 5- and 15-minute markets and has an official trading API. The bot can watch those markets instead of polymarket.com's, and place real orders on them with your account. polymarket.com itself is not supported for real trading.
+
+### Setting it up
+
+1. In the Polymarket US app, finish identity verification. Then sign in at [polymarket.us/developer](https://polymarket.us/developer) the same way you sign in to the app and create an API key. You get a **Key ID** and a **Secret key**; the secret is shown once.
+2. In the bot, open **Live account**, paste both and press **Connect**. The bot reads your balance to check the key, switches itself to Polymarket US markets, opens the exchange's real-time order book stream, and stores the key encrypted by Windows on this PC only (never in `state.json`, never in logs). Connecting does not switch on real-money trading: with a key connected and nothing armed, every strategy paper trades on live Polymarket US data. **Disconnect and forget key** deletes it; you can also revoke the key on the developer page at any time.
+3. Set your **limits** (defaults: $5 per order, $25 in open positions, switch off after losing $20 in a day).
+4. On **Strategies**, tick **Real money** on each strategy you want trading your account. Everything else keeps paper trading.
+5. Back on **Live account**, press **Arm live trading** and confirm.
+
+Nothing spends real money until all of steps 2, 4 and 5 are done, and live trading is **always off again after the app restarts**. A red **■ STOP LIVE TRADING** button sits at the top of the window whenever it is armed: it stops new orders at once and cancels anything resting on the exchange.
+
+### How real orders are handled
+
+- A strategy trades either the paper account or the real one at any moment, never both. Real positions and trades are tagged **LIVE** everywhere; the paper account's numbers stay separate.
+- Every order is an immediate-or-cancel limit order. It fills at the limit price or better right away, or not at all, so a quote that has moved can cause a missed trade but never a worse price.
+- Orders are sized so that even if every share filled at the limit price, the cost including fees stays inside your per-order limit, your open-exposure limit and your account's buying power. A strategy's own stake is cut down to fit.
+- The bot never retries an order. If it cannot tell what happened to one, or three orders in a row fail, or the exchange rejects the key, or the daily loss limit is hit, it switches live trading off and says why in the Activity log.
+- The exchange nets Up against Down within a market, so the bot will not hold both sides of one window with real money.
+- Before selling, the bot checks what the exchange says you hold. If you closed a position in the Polymarket app, the bot drops it rather than selling again.
+- **Close** on a LIVE row sells that real position (after a confirmation) and works even when live trading is switched off. Switching off never closes positions by itself; they stay open until you close them or the window settles.
+- The exchange pays out settled markets itself. The **Real account** panel shows the balance and buying power reported by Polymarket US; the bot's own live P&L figures are its bookkeeping of the trades it made.
+
+### What is different on Polymarket US
+
+| | polymarket.com | Polymarket US |
+| - | - | - |
+| Settlement index | Chainlink BTC/USD, 60-second average | CF Benchmarks BRTI, 60-second average |
+| Price to beat | Rebuilt from the Chainlink feed | Published by the exchange (**official**); until it appears, the index reading for the open (**index**), which is the same number |
+| Order book | Separate Up and Down books, streamed | One book for Up; Down is its mirror image, so Up + Down always costs $1 plus the spread and Pair arbitrage never triggers |
+| Book updates | Pushed over WebSocket, no key needed | Pushed over WebSocket **only to a connected API key**. The public order book is a cached copy up to 30 seconds old: it is shown (the header says **delayed**) but strategies never act on it |
+| Taker fee | `rate × p × (1 − p)` per share, rate read from the market | Same formula; the coefficient depends on your volume tier (0.095 at the lowest) |
+| Result | A few minutes after the window | Usually within a minute |
+
+Choose the exchange under **Settings → Exchange**. Paper trading on polymarket.com needs no key. On Polymarket US even paper trading needs a connected key, because that is the only way to get a current order book; the key just has to be connected, not armed.
+
+### Before you risk money
+
+- **The strategies are not proven.** Paper results on polymarket.com do not carry over: Polymarket US has different prices, liquidity and fees (4.75% of the trade at 50¢ on the lowest tier). Run the strategies on paper on Polymarket US first and look at the per-strategy results.
+- **Nothing that needs a key has been exercised against the real exchange by its author**: not the real-time order book stream, not balances, not orders. All of it follows Polymarket US's published API and official SDK and is covered by tests against a simulated exchange, but your first connection and your first real orders are its first. After connecting, check that the header shows **⚡ US feed · live** and that the balance matches the app before going further. Start with the smallest limits, watch the first few trades in the Polymarket app as well as here, and raise limits only once the two agree.
+- The fair-value model is least reliable when one side is priced under about 10¢ or over 90¢: it treats large moves as rarer than they are, so apparent edges there deserve suspicion.
+- Run one copy of the bot per internet connection. Polymarket US counts requests per IP address, and two copies will trip its limit.
+- Positions you open yourself in the Polymarket app are not managed by the bot.
 
 ## Adding a strategy
 
